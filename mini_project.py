@@ -48,7 +48,8 @@ def handle_missing_values(df, method):
     """Complete les valeurs manquantes selon la methode choisie"""
 
     df_handled = df.copy()
-    #if method == "Clustering":
+    if method == "Frequency":
+        df_handled = df_handled.apply(lambda col: col.fillna(col.mode()[0]) if not col.mode().empty else col)
 
     #elif method == "Mean":
 
