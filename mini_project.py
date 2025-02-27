@@ -5,9 +5,9 @@ import sklearn
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import LabelEncoder
 from sklearn.feature_selection import SelectKBest, f_classif, f_regression
-from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import cross_val_score, train_test_split
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, classification_report
 from sklearn.linear_model import LinearRegression
 
 st.set_page_config(
@@ -41,6 +41,7 @@ def encoding_dataset(df):
     for col in df_encoded.select_dtypes(include=['object', 'category']).columns:
         le = LabelEncoder() # On cree un LabelEncoder pour chaque colonne pour eviter de creer une dependance entre les encoder
         df_encoded[col] = le.fit_transform(df_encoded[col])
+        #AJOUTER un STANDARDSCALER pour standardiser les valeurs num entre 0 et 1
     return df_encoded
 
 
@@ -49,7 +50,10 @@ def handle_missing_values(df, method):
 
     df_handled = df.copy()
     if method == "Frequency":
-        df_handled = df_handled.apply(lambda col: col.fillna(col.mode()[0]) if not col.mode().empty else col)
+        df_handled = df_handled.apply(lambda col: col.fillna(col.mode()[0]) if not col.mode().empty else col 
+                                      if col.dtypes == 'O' else col)
+    
+    df_handled = df_handled.apply(lambda col: col.fillna(col.mean()) if col.dtypes != 'O' else col)
 
     #elif method == "Mean":
 
@@ -93,7 +97,7 @@ def important_features(df, cible):
             best_k = k
             best_score = score
 
-    selector = SelectKBest(score_func=f_classif, k=best_k)
+    selector = SelectKBest(score_func=f_classif, k=best_k)# A MODIFIER pour que ça marche aussi pour une regression
     X_selected = selector.fit_transform(X, y)
     selected_columns = X.columns[selector.get_support()]
     df_important_features = X[selected_columns]
@@ -101,23 +105,39 @@ def important_features(df, cible):
     return df_important_features
 
 
-def traitement_df(df, cible):
+def traitement_df(df, cible, method):
     """Effectue le traitement necessaire sur le df"""
 
     df_encoded = encoding_dataset(df)
-    df_handled = handle_missing_values(df_encoded)
+    df_handled = handle_missing_values(df_encoded, method)
     df_important_features = important_features(df_handled, cible)
 
     return df_important_features
 
 
-#MODELE DE MACHINE LEARNING
+#MODELES DE MACHINE LEARNING
 
 def regression(df, cible):
     """Predit une valeur numerique pour la colonne cible"""
 
 def classification(df, cible):
     """Predit une categorie pour la colonne cible"""
+
+    X = df.drop(columns=[cible])
+    y = df[cible]
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
+    )
+
+    model = RandomForestClassifier(random_state=42, class_weight='balanced')
+    model.fit(X_train, y_train)
+
+    y_pred = model.predict(X_test)
+
+    # Classification report
+    st.write("Classification Report:")
+    st.write(classification_report(y_test, y_pred))
 
 def classification_image(df):
     """Donne une probabilite de classe pour une certaine image en input"""
@@ -141,10 +161,11 @@ elif page == "Data Infos":
             - **Total of missing values :** {df.isna().sum().sum()}
             """)
         cible = st.selectbox("Column to predict", df.columns)
-        method = st.selectbox("Methods", ["Clustering", "Mean", "Median"])
+        method = st.selectbox("Methods", ["Frequency", "Clustering", "Mean", "Median"])
         if st.button("Traitement du Dataset"):
-            traitement_df(df, cible)
-
+            traitement_df(df, cible, method)
+        else:
+            st.warning("Please select a target column and a method to handle value.")
         st.write(df.dtypes)
     else:
         st.warning("No file selected. Please upload a CSV.")
