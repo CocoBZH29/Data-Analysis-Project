@@ -163,10 +163,18 @@ elif page == "Data Infos":
         cible = st.selectbox("Column to predict", df.columns)
         method = st.selectbox("Methods", ["Frequency", "Clustering", "Mean", "Median"])
         if st.button("Traitement du Dataset"):
-            traitement_df(df, cible, method)
+            if df is not None and cible is not None and method is not None:
+                try:
+                    df_preprocessed = traitement_df(df, cible, method)
+                    st.success("The dataset has been successfully processed.")
+                except Exception as e:
+                    st.warning(f"An error occurred: {str(e)}")
+            else:
+                st.warning("Please ensure that the dataset, target column, and method are selected.")
         else:
-            st.warning("Please select a target column and a method to handle value.")
-        st.write(df.dtypes)
+            st.warning("Please preprocess your file by clicking on the button.") 
+        if st.button("Predict the target column"):
+            classification(df_preprocessed, cible)
     else:
         st.warning("No file selected. Please upload a CSV.")
 
