@@ -41,7 +41,7 @@ def encoding_dataset(df):
     for col in df_encoded.select_dtypes(include=['object', 'category']).columns:
         le = LabelEncoder() # On cree un LabelEncoder pour chaque colonne pour eviter de creer une dependance entre les encoder
         df_encoded[col] = le.fit_transform(df_encoded[col])
-        #AJOUTER un STANDARDSCALER pour standardiser les valeurs num entre 0 et 1
+        # TODO un STANDARDSCALER pour standardiser les valeurs num entre 0 et 1
     return df_encoded
 
 
@@ -55,9 +55,9 @@ def handle_missing_values(df, method):
     
     df_handled = df_handled.apply(lambda col: col.fillna(col.mean()) if col.dtypes != 'O' else col)
 
-    #elif method == "Mean":
+    # TODO elif method == "Mean":
 
-    #elif method == "Median":
+    # TODO elif method == "Median":
     
     return df_handled
 
@@ -71,9 +71,8 @@ def important_features(df, cible):
     best_score = 0
     problem_type = "Classification"
 
-    for val in y.shape[1]:
-        if val != 0 and val != 1:
-            problem_type = "Regression"
+    if y.nunique()>2:
+        problem_type = "Regression"
 
     for k in range(1, X.shape[1] + 1): # choix du k le plus optimal
         if problem_type == "Classification":
@@ -97,10 +96,11 @@ def important_features(df, cible):
             best_k = k
             best_score = score
 
-    selector = SelectKBest(score_func=f_classif, k=best_k)# A MODIFIER pour que ça marche aussi pour une regression
+    selector = SelectKBest(score_func=f_classif, k=best_k)# FIXME pour que ça marche aussi pour une regression
     X_selected = selector.fit_transform(X, y)
     selected_columns = X.columns[selector.get_support()]
     df_important_features = X[selected_columns]
+    df_important_features.loc[:, cible] = df[cible]
 
     return df_important_features
 
@@ -119,12 +119,13 @@ def traitement_df(df, cible, method):
 
 def regression(df, cible):
     """Predit une valeur numerique pour la colonne cible"""
+    # TODO
 
 def classification(df, cible):
     """Predit une categorie pour la colonne cible"""
 
-    X = df.drop(columns=[cible])
     y = df[cible]
+    X = df.drop(columns=[cible])
 
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42, stratify=y
@@ -135,12 +136,11 @@ def classification(df, cible):
 
     y_pred = model.predict(X_test)
 
-    # Classification report
-    st.write("Classification Report:")
-    st.write(classification_report(y_test, y_pred))
+    return(y_test, y_pred)
 
 def classification_image(df):
     """Donne une probabilite de classe pour une certaine image en input"""
+    # TODO
 
 
 # AFFICHAGE STREAMLIT
@@ -162,19 +162,29 @@ elif page == "Data Infos":
             """)
         cible = st.selectbox("Column to predict", df.columns)
         method = st.selectbox("Methods", ["Frequency", "Clustering", "Mean", "Median"])
+        if 'df_preprocessed' and 'preprocessed' not in st.session_state:
+            st.session_state.df_preprocessed = pd.DataFrame()
+            st.session_state.preprocessed = False
         if st.button("Traitement du Dataset"):
             if df is not None and cible is not None and method is not None:
                 try:
-                    df_preprocessed = traitement_df(df, cible, method)
+                    st.session_state.df_preprocessed = traitement_df(df, cible, method).copy()
                     st.success("The dataset has been successfully processed.")
+                    st.write(f"**Total of missing values :** {st.session_state.df_preprocessed.isna().sum().sum()}")
+                    st.session_state.preprocessed = True
                 except Exception as e:
                     st.warning(f"An error occurred: {str(e)}")
             else:
                 st.warning("Please ensure that the dataset, target column, and method are selected.")
-        else:
+        elif not st.session_state.preprocessed:
             st.warning("Please preprocess your file by clicking on the button.") 
         if st.button("Predict the target column"):
-            classification(df_preprocessed, cible)
+            if st.session_state.df_preprocessed.empty:
+                st.write('Le dataset est vide')
+            else:
+                y_test, y_pred = classification(st.session_state.df_preprocessed, cible)
+                st.write("Classification Report:")
+                st.write(classification_report(y_test, y_pred))
     else:
         st.warning("No file selected. Please upload a CSV.")
 
