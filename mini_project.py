@@ -94,7 +94,7 @@ def important_features(df, cible):
             y_pred = model.predict_proba(X_selected)[:, 1]
             score = roc_auc_score(y, y_pred)  
 
-        else :
+        elif problem_type == "Regression" :
             selector = SelectKBest(score_func=f_regression, k=k)
             X_selected = selector.fit_transform(X, y)
             
@@ -104,8 +104,12 @@ def important_features(df, cible):
         if score > best_score:
             best_k = k
             best_score = score
+        
+        if problem_type == "Classification":
+            selector = SelectKBest(score_func=f_classif, k=best_k)
+        elif problem_type == "Regression":
+            selector = SelectKBest(score_func=f_regression, k=best_k)
 
-    selector = SelectKBest(score_func=f_classif, k=best_k)# FIXME pour que ça marche aussi pour une regression
     X_selected = selector.fit_transform(X, y)
     selected_columns = X.columns[selector.get_support()]
     df_important_features = X[selected_columns]
@@ -133,7 +137,7 @@ def regression(df, cible):
     X = df.drop(columns=[cible])
 
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
+        X, y, test_size=0.2, random_state=42
     )
 
     model = RandomForestRegressor(
@@ -226,7 +230,6 @@ elif page == "Data Infos":
 
                     disp_col.subheader("Precision score of the model")
                     disp_col.metric("Precision : ", f"{accuracy_score(y_test, y_pred): .2f}")
-                    st.write(classification_report(y_test, y_pred))
 
                 elif problem_type == "Regression":
                     y_test, y_pred = regression(st.session_state.df_preprocessed, cible)
