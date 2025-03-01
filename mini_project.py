@@ -3,12 +3,13 @@ import pandas as pd
 import seaborn as sns
 import sklearn
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.feature_selection import SelectKBest, f_classif, f_regression
 from sklearn.model_selection import cross_val_score, train_test_split
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.metrics import roc_auc_score, classification_report, mean_squared_error, r2_score, accuracy_score
 from sklearn.linear_model import LinearRegression
+from  xgboost import XGBRegressor
 
 st.set_page_config(
     page_title = "Mini-project application",
@@ -50,10 +51,16 @@ def encoding_dataset(df):
     """Transforme les colonnes categoriques en colonnes numeriques"""
 
     df_encoded = df.copy()
+
+    numerical_cols = [col for col in df_encoded.select_dtypes(include=['int64', 'float64']).columns 
+                      if df_encoded[col].nunique() > 10]
+    scaler = StandardScaler()
+    df_encoded[numerical_cols] = scaler.fit_transform(df_encoded[numerical_cols])
+
     for col in df_encoded.select_dtypes(include=['object', 'category']).columns:
         le = LabelEncoder() # On cree un LabelEncoder pour chaque colonne pour eviter de creer une dependance entre les encoder
         df_encoded[col] = le.fit_transform(df_encoded[col])
-        # TODO un STANDARDSCALER pour standardiser les valeurs num entre 0 et 1
+
     return df_encoded
 
 
@@ -104,11 +111,13 @@ def important_features(df, cible):
         if score > best_score:
             best_k = k
             best_score = score
-        
-        if problem_type == "Classification":
-            selector = SelectKBest(score_func=f_classif, k=best_k)
-        elif problem_type == "Regression":
-            selector = SelectKBest(score_func=f_regression, k=best_k)
+
+    if best_k < 3: # Impose d'avoir au moins 3 colonnes de selectionnees
+        best_k = 3
+    if problem_type == "Classification":
+        selector = SelectKBest(score_func=f_classif, k=best_k)
+    elif problem_type == "Regression":
+        selector = SelectKBest(score_func=f_regression, k=best_k)
 
     X_selected = selector.fit_transform(X, y)
     selected_columns = X.columns[selector.get_support()]
@@ -123,6 +132,7 @@ def traitement_df(df, cible, method):
 
     df_encoded = encoding_dataset(df)
     df_handled = handle_missing_values(df_encoded, method)
+    st.write(df_handled.head())
     df_important_features = important_features(df_handled, cible)
 
     return df_important_features
@@ -140,12 +150,15 @@ def regression(df, cible):
         X, y, test_size=0.2, random_state=42
     )
 
-    model = RandomForestRegressor(
-        n_estimators=100, # TODO pouvoir choisir la profondeur du modele
-        max_depth=None,  
-        min_samples_split=2,  # Nombre min d'échantillons pour diviser un nœud
-        min_samples_leaf=1,  # Nombre min d'échantillons dans une feuille
-        random_state=42
+    model = XGBRegressor(
+        objective="reg:squarederror",  # Objectif de régression
+        n_estimators=100,  # Nombre d'arbres
+        max_depth=6,  # Profondeur maximale des arbres
+        learning_rate=0.1,  # Taux d'apprentissage (step size)
+        subsample=0.8,  # Sous-échantillonnage des données
+        colsample_bytree=0.8,  # Proportion de features utilisées par arbre
+        random_state=42,
+        verbosity=0  # Réduire les logs de XGBoost
     )
 
     model.fit(X_train, y_train)
