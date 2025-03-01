@@ -6,8 +6,8 @@ import matplotlib.pyplot as plt
 from sklearn.preprocessing import LabelEncoder
 from sklearn.feature_selection import SelectKBest, f_classif, f_regression
 from sklearn.model_selection import cross_val_score, train_test_split
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import roc_auc_score, classification_report
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.metrics import roc_auc_score, classification_report, mean_squared_error, r2_score, accuracy_score
 from sklearn.linear_model import LinearRegression
 
 st.set_page_config(
@@ -33,6 +33,18 @@ else:
 
 
 # TRAITEMENT DU DATASET
+
+def determine_problem_type(df, cible, threshold=10):
+    """Détermine si la colonne cible correspond à une classification ou une régression"""
+
+    problem_type = "Regression"
+    unique_values = df[cible].nunique()
+    
+    if unique_values <= threshold:
+        problem_type = "Classification"
+
+    return problem_type
+
 
 def encoding_dataset(df):
     """Transforme les colonnes categoriques en colonnes numeriques"""
@@ -69,10 +81,7 @@ def important_features(df, cible):
     y = df[cible]
     best_k = 0
     best_score = 0
-    problem_type = "Classification"
-
-    if y.nunique()>2:
-        problem_type = "Regression"
+    problem_type = determine_problem_type(df, cible)
 
     for k in range(1, X.shape[1] + 1): # choix du k le plus optimal
         if problem_type == "Classification":
@@ -119,7 +128,27 @@ def traitement_df(df, cible, method):
 
 def regression(df, cible):
     """Predit une valeur numerique pour la colonne cible"""
-    # TODO
+    
+    y = df[cible]
+    X = df.drop(columns=[cible])
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
+    )
+
+    model = RandomForestRegressor(
+        n_estimators=100, # TODO pouvoir choisir la profondeur du modele
+        max_depth=None,  
+        min_samples_split=2,  # Nombre min d'échantillons pour diviser un nœud
+        min_samples_leaf=1,  # Nombre min d'échantillons dans une feuille
+        random_state=42
+    )
+
+    model.fit(X_train, y_train)
+
+    y_pred = model.predict(X_test)
+    return(y_test, y_pred)
+
 
 def classification(df, cible):
     """Predit une categorie pour la colonne cible"""
@@ -131,12 +160,13 @@ def classification(df, cible):
         X, y, test_size=0.2, random_state=42, stratify=y
     )
 
-    model = RandomForestClassifier(random_state=42, class_weight='balanced')
+    model = RandomForestClassifier(random_state=42, class_weight='balanced') # TODO pouvoir choisir la profondeur du modele
     model.fit(X_train, y_train)
 
     y_pred = model.predict(X_test)
 
     return(y_test, y_pred)
+
 
 def classification_image(df):
     """Donne une probabilite de classe pour une certaine image en input"""
@@ -160,11 +190,16 @@ elif page == "Data Infos":
             - **Number of columns :** {df.shape[1]}  
             - **Total of missing values :** {df.isna().sum().sum()}
             """)
+
         cible = st.selectbox("Column to predict", df.columns)
         method = st.selectbox("Methods", ["Frequency", "Clustering", "Mean", "Median"])
+        problem_type = determine_problem_type(df, cible)
+
         if 'df_preprocessed' and 'preprocessed' not in st.session_state:
+            # Garde en mémoire le traitement du dataset même si on clique plus sur le bouton 
             st.session_state.df_preprocessed = pd.DataFrame()
             st.session_state.preprocessed = False
+
         if st.button("Traitement du Dataset"):
             if df is not None and cible is not None and method is not None:
                 try:
@@ -178,13 +213,29 @@ elif page == "Data Infos":
                 st.warning("Please ensure that the dataset, target column, and method are selected.")
         elif not st.session_state.preprocessed:
             st.warning("Please preprocess your file by clicking on the button.") 
+
         if st.button("Predict the target column"):
             if st.session_state.df_preprocessed.empty:
                 st.write('Le dataset est vide')
             else:
-                y_test, y_pred = classification(st.session_state.df_preprocessed, cible)
-                st.write("Classification Report:")
-                st.write(classification_report(y_test, y_pred))
+                st.header("Prediction Report:")
+                sel_col, disp_col = st.columns(2)
+
+                if problem_type == "Classification":
+                    y_test, y_pred = classification(st.session_state.df_preprocessed, cible)
+
+                    disp_col.subheader("Precision score of the model")
+                    disp_col.metric("Precision : ", f"{accuracy_score(y_test, y_pred): .2f}")
+                    st.write(classification_report(y_test, y_pred))
+
+                elif problem_type == "Regression":
+                    y_test, y_pred = regression(st.session_state.df_preprocessed, cible)
+
+                    disp_col.subheader("Mean squared error of the model")
+                    disp_col.metric("MSE : ", f"{mean_squared_error(y_test, y_pred): .4f}")
+                    disp_col.subheader("R² score of the model")
+                    disp_col.metric("R² score : ", f"{r2_score(y_test, y_pred): .4f}")
+
     else:
         st.warning("No file selected. Please upload a CSV.")
 
