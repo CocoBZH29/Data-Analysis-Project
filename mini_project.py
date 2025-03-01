@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import seaborn as sns
+import numpy as np
 import sklearn
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import LabelEncoder, StandardScaler
@@ -119,6 +120,7 @@ def important_features(df, cible):
     elif problem_type == "Regression":
         selector = SelectKBest(score_func=f_regression, k=best_k)
 
+    st.write(best_k)
     X_selected = selector.fit_transform(X, y)
     selected_columns = X.columns[selector.get_support()]
     df_important_features = X[selected_columns]
@@ -132,8 +134,8 @@ def traitement_df(df, cible, method):
 
     df_encoded = encoding_dataset(df)
     df_handled = handle_missing_values(df_encoded, method)
-    st.write(df_handled.head())
     df_important_features = important_features(df_handled, cible)
+    st.write(df_important_features.head())
 
     return df_important_features
 
@@ -152,7 +154,7 @@ def regression(df, cible):
 
     model = XGBRegressor(
         objective="reg:squarederror",  # Objectif de régression
-        n_estimators=100,  # Nombre d'arbres
+        n_estimators=None,  # Nombre d'arbres
         max_depth=6,  # Profondeur maximale des arbres
         learning_rate=0.1,  # Taux d'apprentissage (step size)
         subsample=0.8,  # Sous-échantillonnage des données
@@ -190,6 +192,18 @@ def classification_image(df):
     # TODO
 
 
+# DATA VISUALIZATION 
+
+def plot_predictions(y_test, y_pred):
+    fig, ax = plt.subplots()
+    ax.scatter(y_test, y_pred, alpha=0.5)
+    ax.set_xlabel("Valeurs réelles")
+    ax.set_ylabel("Prédictions")
+    ax.set_title("Comparaison entre les vraies valeurs et les prédictions")
+    
+    st.pyplot(fig)
+
+
 # AFFICHAGE STREAMLIT
 
 if page == "Homepage":
@@ -216,6 +230,11 @@ elif page == "Data Infos":
             # Garde en mémoire le traitement du dataset même si on clique plus sur le bouton 
             st.session_state.df_preprocessed = pd.DataFrame()
             st.session_state.preprocessed = False
+        if "y_test" not in st.session_state:
+            st.session_state.y_test = np.array([])  # Tableau vide
+
+        if "y_pred" not in st.session_state:
+            st.session_state.y_pred = np.array([])
 
         if st.button("Traitement du Dataset"):
             if df is not None and cible is not None and method is not None:
@@ -238,25 +257,26 @@ elif page == "Data Infos":
                 st.header("Prediction Report:")
                 sel_col, disp_col = st.columns(2)
 
-                if problem_type == "Classification":
-                    y_test, y_pred = classification(st.session_state.df_preprocessed, cible)
+                if problem_type == "Classification": 
+                    st.session_state.y_test, st.session_state.y_pred = classification(st.session_state.df_preprocessed, cible)
 
                     disp_col.subheader("Precision score of the model")
-                    disp_col.metric("Precision : ", f"{accuracy_score(y_test, y_pred): .2f}")
+                    disp_col.metric("Precision : ", f"{accuracy_score(st.session_state.y_test, st.session_state.y_pred): .2f}")
 
                 elif problem_type == "Regression":
-                    y_test, y_pred = regression(st.session_state.df_preprocessed, cible)
+                    st.session_state.y_test, st.session_state.y_pred = regression(st.session_state.df_preprocessed, cible)
 
                     disp_col.subheader("Mean squared error of the model")
-                    disp_col.metric("MSE : ", f"{mean_squared_error(y_test, y_pred): .4f}")
+                    disp_col.metric("MSE : ", f"{mean_squared_error(st.session_state.y_test, st.session_state.y_pred): .4f}")
                     disp_col.subheader("R² score of the model")
-                    disp_col.metric("R² score : ", f"{r2_score(y_test, y_pred): .4f}")
+                    disp_col.metric("R² score : ", f"{r2_score(st.session_state.y_test, st.session_state.y_pred): .4f}")
 
     else:
         st.warning("No file selected. Please upload a CSV.")
 
 elif page == "Data Visualization":
     st.title("Data Visualization")
+    plot_predictions(st.session_state.y_test, st.session_state.y_pred)
     
 
 elif page == "Data Prediction":
