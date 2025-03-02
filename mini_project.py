@@ -120,7 +120,6 @@ def important_features(df, cible):
     elif problem_type == "Regression":
         selector = SelectKBest(score_func=f_regression, k=best_k)
 
-    st.write(best_k)
     X_selected = selector.fit_transform(X, y)
     selected_columns = X.columns[selector.get_support()]
     df_important_features = X[selected_columns]
@@ -195,6 +194,8 @@ def classification_image(df):
 # DATA VISUALIZATION 
 
 def plot_predictions(y_test, y_pred):
+    """Affiche un plan, si les points son proche de y=x alors le modèle a une bonne prédiction"""
+
     fig, ax = plt.subplots()
     ax.scatter(y_test, y_pred, alpha=0.5)
     ax.set_xlabel("Valeurs réelles")
@@ -202,6 +203,15 @@ def plot_predictions(y_test, y_pred):
     ax.set_title("Comparaison entre les vraies valeurs et les prédictions")
     
     st.pyplot(fig)
+
+
+def heat_map(df):
+    """Affiche une heatmap pour voir les corrélations entre les variables"""
+
+    fig, ax = plt.subplots(figsize=(10,6))  
+    sns.heatmap(df.corr(), annot=True, cmap="coolwarm", ax=ax)  
+
+    st.pyplot(fig)  
 
 
 # AFFICHAGE STREAMLIT
@@ -277,6 +287,7 @@ elif page == "Data Infos":
 elif page == "Data Visualization":
     st.title("Data Visualization")
     plot_predictions(st.session_state.y_test, st.session_state.y_pred)
+    heat_map(st.session_state.df_preprocessed)
     
 
 elif page == "Data Prediction":
