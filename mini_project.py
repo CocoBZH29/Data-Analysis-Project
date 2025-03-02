@@ -8,30 +8,17 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.feature_selection import SelectKBest, f_classif, f_regression
 from sklearn.model_selection import cross_val_score, train_test_split
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.metrics import roc_auc_score, classification_report, mean_squared_error, r2_score, accuracy_score
+from sklearn.metrics import roc_auc_score, classification_report, mean_squared_error, r2_score, accuracy_score, silhouette_score
 from sklearn.linear_model import LinearRegression
+from sklearn.cluster import KMeans
+from scipy.spatial.distance import cdist
 from  xgboost import XGBRegressor
+
 
 st.set_page_config(
     page_title = "Mini-project application",
     layout = "wide"
 )
-
-page = st.sidebar.radio("Navigation", ["Homepage", "Data Infos", "Data Visualization", "Data Prediction"])
-uploaded_file = st.sidebar.file_uploader("Import CSV file", type=["csv"])
-
-# Gere les differentes erreurs de chargement du fichier 
-if uploaded_file is not None:
-    try:
-        st.session_state["df"] = pd.read_csv(uploaded_file)  # Preserve l'affichage du CSV quand on change de page
-        st.sidebar.success("The file has been uploaded")
-    except Exception as e:
-        st.sidebar.error(f"❌ Loading error : {e}")
-
-if "df" in st.session_state:
-    df = st.session_state["df"]
-else:
-    df = None
 
 
 # TRAITEMENT DU DATASET
@@ -46,6 +33,20 @@ def determine_problem_type(df, cible, threshold=10):
         problem_type = "Classification"
 
     return problem_type
+
+
+def remove_extreme_values(df, cible):
+    """Retire les valeurs aberrantes du dataset"""
+
+    df_wout_xtr_values = df.copy()
+    #retire les $ pour avoir le prix numérique et non en catégorie
+    if df_wout_xtr_values[cible].astype(str).str.contains("\$").any(): # FIXME faire pour toutes les colonnes si jamais le prix n'est pas notre colonne cible
+        df_wout_xtr_values[cible] = df_wout_xtr_values[cible].str.replace("$", "", regex=False) 
+        df_wout_xtr_values[cible] = df_wout_xtr_values[cible].str.replace(",", "", regex=False)  
+        df_wout_xtr_values[cible] = pd.to_numeric(df_wout_xtr_values[cible])  
+    # TODO
+
+    return df_wout_xtr_values
 
 
 def encoding_dataset(df):
@@ -65,18 +66,67 @@ def encoding_dataset(df):
     return df_encoded
 
 
-def handle_missing_values(df, method):
+def handle_missing_values(df, method, cible):
     """Complete les valeurs manquantes selon la methode choisie"""
 
     df_handled = df.copy()
     if method == "Frequency":
         df_handled = df_handled.apply(lambda col: col.fillna(col.mode()[0]) if not col.mode().empty else col 
                                       if col.dtypes == 'O' else col)
+        df_handled = df_handled.apply(lambda col: col.fillna(col.mean()) if col.dtypes != 'O' else col)
     
-    df_handled = df_handled.apply(lambda col: col.fillna(col.mean()) if col.dtypes != 'O' else col)
+    elif method == "Clustering":
+        c = 5 # Nombre de colonne de corrélation utilisées pour faire les clusters
+        max_k = 10 # Nombre maximum de clusters
 
-    # TODO elif method == "Mean":
+        corr_matrix = df.corr().abs() 
+        cible_corr = corr_matrix[cible].drop(cible).sort_values(ascending=False)  
+        best_cols = cible_corr.index[:c] 
 
+        df_cluster = df_handled[best_cols].dropna()
+
+        distortions = []
+        silhouette_scores = []
+        K_range = range(2, max_k + 1)  # Tester de 2 à max_k clusters
+        
+        for k in K_range:
+            kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+            kmeans.fit(df_cluster)
+            
+            distortions.append(sum(np.min(cdist(df_cluster, kmeans.cluster_centers_, 'euclidean'), axis=1)) / df_cluster.shape[0])
+            silhouette_scores.append(silhouette_score(df_cluster, kmeans.labels_))
+
+        # Trouver le k optimal (min du coude de la courbe d’inertie)
+        optimal_k = K_range[np.argmax(silhouette_scores)]
+
+        fig, ax = plt.subplots(1, 2, figsize=(12, 5))
+
+        ax[0].plot(K_range, distortions, marker='o', linestyle='-')
+        ax[0].set_title("Méthode du coude (Inertie)")
+        ax[0].set_xlabel("Nombre de clusters")
+        ax[0].set_ylabel("Distorsion")
+
+        # Score de silhouette
+        ax[1].plot(K_range, silhouette_scores, marker='o', linestyle='-', color='red')
+        ax[1].set_title("Score de silhouette")
+        ax[1].set_xlabel("Nombre de clusters")
+        ax[1].set_ylabel("Silhouette Score")
+
+        st.pyplot(fig) 
+
+        st.write(f"### Nombre optimal de clusters choisi : {optimal_k}")
+
+        kmeans = KMeans(n_clusters=optimal_k, random_state=42, n_init=10)
+        df_handled["Cluster"] = kmeans.fit_predict(df_cluster)
+
+        for col in df_handled.columns:
+            if df_handled[col].isna().sum() > 0:  # Si la colonne contient des NaN
+                if df_handled[col].dtype in ['int64', 'float64']: 
+                    df_handled[col] = df_handled.groupby("Cluster")[col].transform(lambda x: x.fillna(x.median()))
+
+
+        df_handled.drop(columns=["Cluster"], inplace=True)
+    # FIXME Ne marche pas pour toutes les colonnes (dans stroke dataset voir 'age')
     # TODO elif method == "Median":
     
     return df_handled
@@ -131,8 +181,9 @@ def important_features(df, cible):
 def traitement_df(df, cible, method):
     """Effectue le traitement necessaire sur le df"""
 
-    df_encoded = encoding_dataset(df)
-    df_handled = handle_missing_values(df_encoded, method)
+    df_wout_xtr_values = remove_extreme_values(df, cible)
+    df_encoded = encoding_dataset(df_wout_xtr_values)
+    df_handled = handle_missing_values(df_encoded, method, cible)
     df_important_features = important_features(df_handled, cible)
     st.write(df_important_features.head())
 
@@ -216,15 +267,35 @@ def heat_map(df):
 
 # AFFICHAGE STREAMLIT
 
+page = st.sidebar.radio("Navigation", ["Homepage", "Data Infos", "Data Visualization", "Data Prediction"])
+uploaded_file = st.sidebar.file_uploader("Import CSV file", type=["csv"])
+
+# Gere les differentes erreurs de chargement du fichier 
+if uploaded_file is not None:
+    try:
+        st.session_state["df"] = pd.read_csv(uploaded_file)  # Preserve l'affichage du CSV quand on change de page
+        st.sidebar.success("The file has been uploaded")
+    except Exception as e:
+        st.sidebar.error(f"❌ Loading error : {e}")
+
+if "df" in st.session_state:
+    df = st.session_state["df"]
+else:
+    df = None
+
 if page == "Homepage":
     st.title("Homepage")
 
 elif page == "Data Infos":
     st.title("Data Infos")
     if df is not None:
+        g_col, d_col = st.columns(2)
         st.header("Dataset preview :")
         st.dataframe(df.head())
-        st.write(df.describe())
+        g_col.write("Descriptives stat")
+        g_col.write(df.describe())
+        d_col.write("Columns name")
+        d_col.write(df.dtypes)
         st.header("Dataset information :")
         st.markdown(f"""
             - **Number of rows :** {df.shape[0]}  
@@ -249,7 +320,7 @@ elif page == "Data Infos":
         if st.button("Traitement du Dataset"):
             if df is not None and cible is not None and method is not None:
                 try:
-                    st.session_state.df_preprocessed = traitement_df(df, cible, method).copy()
+                    st.session_state.df_preprocessed = traitement_df(df, cible, method)
                     st.success("The dataset has been successfully processed.")
                     st.write(f"**Total of missing values :** {st.session_state.df_preprocessed.isna().sum().sum()}")
                     st.session_state.preprocessed = True
@@ -262,7 +333,7 @@ elif page == "Data Infos":
 
         if st.button("Predict the target column"):
             if st.session_state.df_preprocessed.empty:
-                st.write('Le dataset est vide')
+                st.write('The dataset is empty')
             else:
                 st.header("Prediction Report:")
                 sel_col, disp_col = st.columns(2)
