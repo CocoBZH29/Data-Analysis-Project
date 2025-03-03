@@ -41,12 +41,12 @@ def remove_unit(df):
     df_clean = df.copy()
     for col in df.columns :
         #retire les $ pour avoir le prix numérique et non en catégorie
-        if df_clean[col].astype(str).str.contains("\$").any(): # FIXME faire pour toutes les colonnes si jamais le prix n'est pas notre colonne cible
+        if df_clean[col].astype(str).str.contains("\$").any():
             df_clean[col] = df_clean[col].str.replace("$", "", regex=False) 
             df_clean[col] = df_clean[col].str.replace(",", "", regex=False)  
             df_clean[col] = pd.to_numeric(df_clean[col])  
 
-        if df_clean[col].astype(str).str.contains(r"mi\.").any(): # FIXME faire pour toutes les colonnes si jamais le prix n'est pas notre colonne cible
+        if df_clean[col].astype(str).str.contains(r"mi\.").any():
             df_clean[col] = df_clean[col].str.replace("mi.", "", regex=False) 
             df_clean[col] = df_clean[col].str.replace(",", "", regex=False)  
             df_clean[col] = pd.to_numeric(df_clean[col]) 
@@ -328,9 +328,32 @@ def plot_column(df, colonne):
 
         fig2, ax2 = plt.subplots(figsize=(3, 2))
         feature_counts = df[colonne].value_counts()
-        ax2.pie(feature_counts, labels=feature_counts.index, autopct='%1.1f%%', startangle=90)
+        ax2.pie(feature_counts, labels=feature_counts.index, autopct='%1.1f%%', startangle=90) # FIXME problème quand il y a trop de catégories différentes
         ax2.set_title(f"Répartition de : {colonne}")
         d_col.pyplot(fig2)
+
+
+def plot_correlation(df, colonne):
+    g_col, d_col = st.columns(2)
+    g_col2, d_col2 = st.columns(2)
+
+    corr = df.corr()[colonne].sort_values(ascending=False)
+    top_corr_features = corr.index[1:5]  # Sélectionne les 4 variables les plus corrélées
+
+    for col in top_corr_features:
+        i=1
+        fig, ax = plt.subplots()
+        sns.scatterplot(x=df[col], y=df[colonne], ax=ax)
+        ax.set_title(f"{col} vs {colonne}")
+        if i==1:
+            g_col.pyplot(fig)
+        elif i==2:
+            d_col.pyplot(fig)
+        elif i==3:
+            g_col2.pyplot(fig)
+        elif i==4:
+            d_col2.pyplot(fig)
+        i+=1
 
 
 # AFFICHAGE STREAMLIT
@@ -382,7 +405,6 @@ elif page == "Data Infos":
         st.header("Distribution of the variable :")
         plot_column(df, colonne)
 
-
     else:
         st.warning("No file selected. Please upload a CSV.")
 
@@ -392,6 +414,8 @@ elif page == "Data Prediction":
     if df is not None:
         df = remove_unit(df)
         cible = st.selectbox("Column to predict", df.columns)
+        if "cible" not in st.session_state:
+            cible = st.session_state["cible"]
         method = st.selectbox("Methods", ["Frequency/Mean", "Clustering"])
         problem_type = determine_problem_type(df, cible)
 
@@ -424,25 +448,28 @@ elif page == "Data Prediction":
                 st.write('The dataset is empty')
             else:
                 st.header("Prediction Report:")
-                sel_col, disp_col = st.columns(2)
 
                 if problem_type == "Classification": 
                     st.session_state.y_test, st.session_state.y_pred = classification(st.session_state.df_preprocessed, cible)
 
-                    disp_col.subheader("Precision score of the model")
-                    disp_col.metric("Precision : ", f"{accuracy_score(st.session_state.y_test, st.session_state.y_pred): .2f}")
+                    st.subheader("Precision score of the model")
+                    st.metric("Precision : ", f"{accuracy_score(st.session_state.y_test, st.session_state.y_pred): .2f}")
 
                 elif problem_type == "Regression":
                     st.session_state.y_test, st.session_state.y_pred = regression(st.session_state.df_preprocessed, cible)
 
-                    disp_col.subheader("Mean squared error of the model")
-                    disp_col.metric("MSE : ", f"{mean_squared_error(st.session_state.y_test, st.session_state.y_pred): .4f}")
-                    disp_col.subheader("R² score of the model")
-                    disp_col.metric("R² score : ", f"{r2_score(st.session_state.y_test, st.session_state.y_pred): .4f}")
+                    st.subheader("Mean squared error of the model")
+                    st.metric("MSE : ", f"{mean_squared_error(st.session_state.y_test, st.session_state.y_pred): .4f}")
+                    st.subheader("R² score of the model")
+                    st.metric("R² score : ", f"{r2_score(st.session_state.y_test, st.session_state.y_pred): .4f}")
     else:
         st.warning("No file selected. Please upload a CSV.")
 
 elif page == "Data Visualization":
     st.title("Data Visualization")
+
     plot_predictions(st.session_state.y_test, st.session_state.y_pred)
+
+    st.header("Correlation plot :")
     heat_map(st.session_state.df_preprocessed)
+    plot_correlation(st.session_state.df_preprocessed, cible)
