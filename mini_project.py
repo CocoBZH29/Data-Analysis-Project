@@ -35,7 +35,7 @@ def determine_problem_type(df, cible, threshold=10):
     return problem_type
 
 
-def remove_price_unit(df):
+def remove_unit(df):
     """Retire le $ dans les colonnes de prix pour bien que la colonne soit numérique"""
 
     df_clean = df.copy()
@@ -45,6 +45,11 @@ def remove_price_unit(df):
             df_clean[col] = df_clean[col].str.replace("$", "", regex=False) 
             df_clean[col] = df_clean[col].str.replace(",", "", regex=False)  
             df_clean[col] = pd.to_numeric(df_clean[col])  
+
+        if df_clean[col].astype(str).str.contains(r"mi\.").any(): # FIXME faire pour toutes les colonnes si jamais le prix n'est pas notre colonne cible
+            df_clean[col] = df_clean[col].str.replace("mi.", "", regex=False) 
+            df_clean[col] = df_clean[col].str.replace(",", "", regex=False)  
+            df_clean[col] = pd.to_numeric(df_clean[col]) 
 
     return df_clean
 
@@ -293,6 +298,7 @@ def plot_missing_values(df):
     """Affiche une heatmap et un bar plot des valeurs manquantes dans le dataset"""
 
     g_col, d_col = st.columns([2, 1])
+
     fig, ax = plt.subplots(figsize=(10, 5))
     sns.heatmap(df.isna(), cmap="viridis", cbar=False, ax=ax)
     g_col.pyplot(fig)
@@ -300,6 +306,31 @@ def plot_missing_values(df):
     missing_values = df.isna().sum().sort_values(ascending=False)
     d_col.bar_chart(missing_values[missing_values > 0])
 
+
+def plot_column(df, colonne):
+    """Affiche un histogramme de la colonne ainsi qu'un boxplot pour détecter les valeurs aberrantes"""
+
+    g_col, d_col = st.columns(2)
+
+    if df[colonne].dtype in [np.int64, np.float64]:
+        fig, ax = plt.subplots()
+        sns.histplot(df[colonne], kde=True, ax=ax)
+        g_col.pyplot(fig)
+
+        fig2, ax2 = plt.subplots()
+        sns.boxplot(x=df[colonne], ax=ax2)
+        d_col.pyplot(fig2)
+    
+    else:
+        fig, ax = plt.subplots(figsize=(3, 2))
+        sns.histplot(df[colonne], kde=True, ax=ax)
+        g_col.pyplot(fig)
+
+        fig2, ax2 = plt.subplots(figsize=(3, 2))
+        feature_counts = df[colonne].value_counts()
+        ax2.pie(feature_counts, labels=feature_counts.index, autopct='%1.1f%%', startangle=90)
+        ax2.set_title(f"Répartition de : {colonne}")
+        d_col.pyplot(fig2)
 
 
 # AFFICHAGE STREAMLIT
@@ -327,7 +358,7 @@ if page == "Homepage":
 elif page == "Data Infos":
     st.title("Data Infos")
     if df is not None:
-        df = remove_price_unit(df)
+        df = remove_unit(df)
 
         st.header("Dataset preview :")
         st.dataframe(df.head())
@@ -346,6 +377,11 @@ elif page == "Data Infos":
         if df.isna().sum().sum() > 0:
             st.header("Heatmap and Bar plot of missing values :")
             plot_missing_values(df)
+        
+        colonne = st.selectbox("Column to plot", df.columns)
+        st.header("Distribution of the variable :")
+        plot_column(df, colonne)
+
 
     else:
         st.warning("No file selected. Please upload a CSV.")
@@ -354,7 +390,7 @@ elif page == "Data Prediction":
     st.title("Data Prediction")
 
     if df is not None:
-        df = remove_price_unit(df)
+        df = remove_unit(df)
         cible = st.selectbox("Column to predict", df.columns)
         method = st.selectbox("Methods", ["Frequency/Mean", "Clustering"])
         problem_type = determine_problem_type(df, cible)
