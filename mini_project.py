@@ -35,16 +35,23 @@ def determine_problem_type(df, cible, threshold=10):
     return problem_type
 
 
-def remove_extreme_values(df, cible, method = "IQR", threshold = 1.5):
+def remove_price_unit(df):
+    """Retire le $ dans les colonnes de prix pour bien que la colonne soit numérique"""
+
+    df_clean = df.copy()
+    for col in df.columns :
+        #retire les $ pour avoir le prix numérique et non en catégorie
+        if df_clean[col].astype(str).str.contains("\$").any(): # FIXME faire pour toutes les colonnes si jamais le prix n'est pas notre colonne cible
+            df_clean[col] = df_clean[col].str.replace("$", "", regex=False) 
+            df_clean[col] = df_clean[col].str.replace(",", "", regex=False)  
+            df_clean[col] = pd.to_numeric(df_clean[col])  
+
+    return df_clean
+
+def remove_extreme_values(df, threshold = 1.5):
     """Retire les valeurs aberrantes du dataset"""
 
     df_wout_xtr_values = df.copy()
-    #retire les $ pour avoir le prix numérique et non en catégorie
-    if df_wout_xtr_values[cible].astype(str).str.contains("\$").any(): # FIXME faire pour toutes les colonnes si jamais le prix n'est pas notre colonne cible
-        df_wout_xtr_values[cible] = df_wout_xtr_values[cible].str.replace("$", "", regex=False) 
-        df_wout_xtr_values[cible] = df_wout_xtr_values[cible].str.replace(",", "", regex=False)  
-        df_wout_xtr_values[cible] = pd.to_numeric(df_wout_xtr_values[cible])  
-
     num_cols = [ col for col in df_wout_xtr_values.select_dtypes(include=['int64', 'float64']).columns if df_wout_xtr_values[col].nunique() >10]
 
     for col in num_cols:
@@ -83,7 +90,7 @@ def handle_missing_values(df, method, cible):
     """Complete les valeurs manquantes selon la methode choisie"""
 
     df_handled = df.copy()
-    if method == "Frequency":
+    if method == "Frequency/Mean":
         df_handled = df_handled.apply(lambda col: col.fillna(col.mode()[0]) if not col.mode().empty else col 
                                       if col.dtypes == 'O' else col)
         df_handled = df_handled.apply(lambda col: col.fillna(col.mean()) if col.dtypes != 'O' else col)
@@ -199,7 +206,7 @@ def important_features(df, cible):
 def traitement_df(df, cible, method):
     """Effectue le traitement necessaire sur le df"""
 
-    df_wout_xtr_values = remove_extreme_values(df, cible)
+    df_wout_xtr_values = remove_extreme_values(df)
     df_encoded = encoding_dataset(df_wout_xtr_values)
     df_handled = handle_missing_values(df_encoded, method, cible)
     df_important_features = important_features(df_handled, cible)
@@ -279,13 +286,25 @@ def heat_map(df):
 
     fig, ax = plt.subplots(figsize=(10,6))  
     sns.heatmap(df.corr(), annot=True, cmap="coolwarm", ax=ax)  
-
     st.pyplot(fig)  
+
+
+def plot_missing_values(df):
+    """Affiche une heatmap et un bar plot des valeurs manquantes dans le dataset"""
+
+    g_col, d_col = st.columns([2, 1])
+    fig, ax = plt.subplots(figsize=(10, 5))
+    sns.heatmap(df.isna(), cmap="viridis", cbar=False, ax=ax)
+    g_col.pyplot(fig)
+
+    missing_values = df.isna().sum().sort_values(ascending=False)
+    d_col.bar_chart(missing_values[missing_values > 0])
+
 
 
 # AFFICHAGE STREAMLIT
 
-page = st.sidebar.radio("Navigation", ["Homepage", "Data Infos", "Data Visualization", "Data Prediction"])
+page = st.sidebar.radio("Navigation", ["Homepage", "Data Infos", "Data Prediction", "Data Visualization"])
 uploaded_file = st.sidebar.file_uploader("Import CSV file", type=["csv"])
 
 # Gere les differentes erreurs de chargement du fichier 
@@ -301,18 +320,21 @@ if "df" in st.session_state:
 else:
     df = None
 
+
 if page == "Homepage":
     st.title("Homepage")
 
 elif page == "Data Infos":
     st.title("Data Infos")
     if df is not None:
-        g_col, d_col = st.columns(2)
+        df = remove_price_unit(df)
+
         st.header("Dataset preview :")
         st.dataframe(df.head())
-        g_col.write("Descriptives stat")
+        g_col, d_col = st.columns(2)
+        g_col.header("Descriptive stats :")
         g_col.write(df.describe())
-        d_col.write("Columns name")
+        d_col.header("Column names :")
         d_col.write(df.dtypes)
         st.header("Dataset information :")
         st.markdown(f"""
@@ -321,8 +343,20 @@ elif page == "Data Infos":
             - **Total of missing values :** {df.isna().sum().sum()}
             """)
 
+        if df.isna().sum().sum() > 0:
+            st.header("Heatmap and Bar plot of missing values :")
+            plot_missing_values(df)
+
+    else:
+        st.warning("No file selected. Please upload a CSV.")
+
+elif page == "Data Prediction":
+    st.title("Data Prediction")
+
+    if df is not None:
+        df = remove_price_unit(df)
         cible = st.selectbox("Column to predict", df.columns)
-        method = st.selectbox("Methods", ["Frequency", "Clustering", "Mean", "Median"])
+        method = st.selectbox("Methods", ["Frequency/Mean", "Clustering"])
         problem_type = determine_problem_type(df, cible)
 
         if 'df_preprocessed' and 'preprocessed' not in st.session_state:
@@ -369,7 +403,6 @@ elif page == "Data Infos":
                     disp_col.metric("MSE : ", f"{mean_squared_error(st.session_state.y_test, st.session_state.y_pred): .4f}")
                     disp_col.subheader("R² score of the model")
                     disp_col.metric("R² score : ", f"{r2_score(st.session_state.y_test, st.session_state.y_pred): .4f}")
-
     else:
         st.warning("No file selected. Please upload a CSV.")
 
@@ -377,7 +410,3 @@ elif page == "Data Visualization":
     st.title("Data Visualization")
     plot_predictions(st.session_state.y_test, st.session_state.y_pred)
     heat_map(st.session_state.df_preprocessed)
-    
-
-elif page == "Data Prediction":
-    st.title("Data Prediction")
