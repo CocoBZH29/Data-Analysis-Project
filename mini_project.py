@@ -35,7 +35,7 @@ def determine_problem_type(df, cible, threshold=10):
     return problem_type
 
 
-def remove_extreme_values(df, cible):
+def remove_extreme_values(df, cible, method = "IQR", threshold = 1.5):
     """Retire les valeurs aberrantes du dataset"""
 
     df_wout_xtr_values = df.copy()
@@ -44,7 +44,20 @@ def remove_extreme_values(df, cible):
         df_wout_xtr_values[cible] = df_wout_xtr_values[cible].str.replace("$", "", regex=False) 
         df_wout_xtr_values[cible] = df_wout_xtr_values[cible].str.replace(",", "", regex=False)  
         df_wout_xtr_values[cible] = pd.to_numeric(df_wout_xtr_values[cible])  
-    # TODO
+
+    num_cols = [ col for col in df_wout_xtr_values.select_dtypes(include=['int64', 'float64']).columns if df_wout_xtr_values[col].nunique() >10]
+
+    for col in num_cols:
+        Q1 = df_wout_xtr_values[col].quantile(0.25)
+        Q3 = df_wout_xtr_values[col].quantile(0.75)
+        IQR = Q3 - Q1
+        
+        # Définition des bornes
+        lower_bound = Q1 - threshold * IQR
+        upper_bound = Q3 + threshold * IQR
+        
+        # Filtrer les valeurs aberrantes
+        df_wout_xtr_values = df_wout_xtr_values[(df_wout_xtr_values[col] >= lower_bound) & (df_wout_xtr_values[col] <= upper_bound)]
 
     return df_wout_xtr_values
 
@@ -101,13 +114,13 @@ def handle_missing_values(df, method, cible):
 
         fig, ax = plt.subplots(1, 2, figsize=(12, 5))
 
-        ax[0].plot(K_range, distortions, marker='o', linestyle='-')
+        ax[0].plot(K_range, distortions, marker='o', linestyle='-') # FIXME A retirer ou à déplacer dans la page de data prediciton
         ax[0].set_title("Méthode du coude (Inertie)")
         ax[0].set_xlabel("Nombre de clusters")
         ax[0].set_ylabel("Distorsion")
 
         # Score de silhouette
-        ax[1].plot(K_range, silhouette_scores, marker='o', linestyle='-', color='red')
+        ax[1].plot(K_range, silhouette_scores, marker='o', linestyle='-', color='red') # FIXME A retirer ou à déplacer dans la page de data prediciton
         ax[1].set_title("Score de silhouette")
         ax[1].set_xlabel("Nombre de clusters")
         ax[1].set_ylabel("Silhouette Score")
@@ -148,8 +161,13 @@ def important_features(df, cible):
             
             model = RandomForestClassifier()
             model.fit(X_selected, y)
-        
-            y_pred = model.predict_proba(X_selected)[:, 1]
+
+            y_pred_proba = model.predict_proba(X_selected)
+
+            if y_pred_proba.shape[1] == 2:
+                y_pred = y_pred_proba[:, 1]  # Prendre la proba de la classe positive
+            else:
+                y_pred = y_pred_proba[:, 0]
             score = roc_auc_score(y, y_pred)  
 
         elif problem_type == "Regression" :
