@@ -333,7 +333,7 @@ def plot_column(df, colonne):
         d_col.pyplot(fig2)
 
 
-def plot_correlation(df, colonne):
+def plot_correlation(df, colonne): # FIXME ne prend pas la bonne colonne
     g_col, d_col = st.columns(2)
     g_col2, d_col2 = st.columns(2)
 
@@ -413,11 +413,11 @@ elif page == "Data Prediction":
 
     if df is not None:
         df = remove_unit(df)
-        cible = st.selectbox("Column to predict", df.columns)
         if "cible" not in st.session_state:
-            cible = st.session_state["cible"]
+            st.session_state.cible = ""
+        st.session_state.cible = st.selectbox("Column to predict", df.columns)
         method = st.selectbox("Methods", ["Frequency/Mean", "Clustering"])
-        problem_type = determine_problem_type(df, cible)
+        problem_type = determine_problem_type(df, st.session_state.cible)
 
         if 'df_preprocessed' and 'preprocessed' not in st.session_state:
             # Garde en mémoire le traitement du dataset même si on clique plus sur le bouton 
@@ -430,9 +430,9 @@ elif page == "Data Prediction":
             st.session_state.y_pred = np.array([])
 
         if st.button("Traitement du Dataset"):
-            if df is not None and cible is not None and method is not None:
+            if df is not None and st.session_state.cible is not None and method is not None:
                 try:
-                    st.session_state.df_preprocessed = traitement_df(df, cible, method)
+                    st.session_state.df_preprocessed = traitement_df(df, st.session_state.cible, method)
                     st.success("The dataset has been successfully processed.")
                     st.write(f"**Total of missing values :** {st.session_state.df_preprocessed.isna().sum().sum()}")
                     st.session_state.preprocessed = True
@@ -450,13 +450,13 @@ elif page == "Data Prediction":
                 st.header("Prediction Report:")
 
                 if problem_type == "Classification": 
-                    st.session_state.y_test, st.session_state.y_pred = classification(st.session_state.df_preprocessed, cible)
+                    st.session_state.y_test, st.session_state.y_pred = classification(st.session_state.df_preprocessed, st.session_state.cible)
 
                     st.subheader("Precision score of the model")
                     st.metric("Precision : ", f"{accuracy_score(st.session_state.y_test, st.session_state.y_pred): .2f}")
 
                 elif problem_type == "Regression":
-                    st.session_state.y_test, st.session_state.y_pred = regression(st.session_state.df_preprocessed, cible)
+                    st.session_state.y_test, st.session_state.y_pred = regression(st.session_state.df_preprocessed, st.session_state.cible)
 
                     st.subheader("Mean squared error of the model")
                     st.metric("MSE : ", f"{mean_squared_error(st.session_state.y_test, st.session_state.y_pred): .4f}")
@@ -467,9 +467,13 @@ elif page == "Data Prediction":
 
 elif page == "Data Visualization":
     st.title("Data Visualization")
+    
+    if df is not None :
+        plot_predictions(st.session_state.y_test, st.session_state.y_pred)
 
-    plot_predictions(st.session_state.y_test, st.session_state.y_pred)
+        st.header("Correlation plot :")
+        heat_map(st.session_state.df_preprocessed)
+        plot_correlation(st.session_state.df_preprocessed, st.session_state.cible)
 
-    st.header("Correlation plot :")
-    heat_map(st.session_state.df_preprocessed)
-    plot_correlation(st.session_state.df_preprocessed, cible)
+    else:
+        st.warning("No file selected. Please upload a CSV.")
