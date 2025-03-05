@@ -8,11 +8,12 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.feature_selection import SelectKBest, f_classif, f_regression
 from sklearn.model_selection import cross_val_score, train_test_split
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.metrics import roc_auc_score, classification_report, mean_squared_error, r2_score, accuracy_score, silhouette_score, confusion_matrix 
+from sklearn.metrics import roc_auc_score, classification_report, mean_squared_error, r2_score, accuracy_score, silhouette_score, confusion_matrix, f1_score
 from sklearn.linear_model import LinearRegression
 from sklearn.cluster import KMeans
 from scipy.spatial.distance import cdist
 from  xgboost import XGBRegressor
+from statsmodels.graphics.mosaicplot import mosaic
 
 
 st.set_page_config(
@@ -219,6 +220,7 @@ def traitement_df(df, cible, method):
     df_encoded = encoding_dataset(df_wout_xtr_values)
     df_handled = handle_missing_values(df_encoded, method, cible)
     df_important_features = important_features(df_handled, cible)
+    st.write("### Most important features used to train the model :")
     st.write(df_important_features.head())
 
     return df_important_features
@@ -333,18 +335,28 @@ def plot_column(df, colonne):
         d_col.pyplot(fig2)
     
     else:
+        categories = df[colonne]
+        if df[colonne].nunique() > 10:
+            st.warning("The selected column has too many different categories, only the 10 most frequent are displayed")
+            categories = df[colonne].value_counts().head(10)
+        
         fig, ax = plt.subplots(figsize=(3, 2))
-        sns.histplot(df[colonne], kde=True, ax=ax)
+        sns.barplot(x=categories.index, y=categories.values, ax=ax)
+        ax.set_xlabel('Category')
+        ax.set_ylabel('Frequency')
+        plt.xticks(rotation=90, ha='right')
         g_col.pyplot(fig)
 
         fig2, ax2 = plt.subplots(figsize=(3, 2))
-        feature_counts = df[colonne].value_counts()
+        feature_counts = categories.value_counts()
         ax2.pie(feature_counts, labels=feature_counts.index, autopct='%1.1f%%', startangle=90) # FIXME problème quand il y a trop de catégories différentes
         ax2.set_title(f"Répartition de : {colonne}")
         d_col.pyplot(fig2)
 
 
-def plot_correlation(df, colonne): # FIXME ne prend pas la bonne colonne
+def plot_correlation(df, colonne):
+    """Affiche un scatter plot de corrélation entre les 4 colonnes les plus corrélées à la colonne à prédire """
+
     g_col, d_col = st.columns(2)
     g_col2, d_col2 = st.columns(2)
 
@@ -368,6 +380,8 @@ def plot_correlation(df, colonne): # FIXME ne prend pas la bonne colonne
 
 
 def confusion_mat(y_test, y_pred):
+    """Affiche une matrice de confusion pour identifier les faux positifs, etc..."""
+
     cm = confusion_matrix(y_test, y_pred)
 
     fig, ax = plt.subplots(figsize=(6, 4))
@@ -378,9 +392,10 @@ def confusion_mat(y_test, y_pred):
 
     st.pyplot(fig)
 
+
 # AFFICHAGE STREAMLIT
 
-page = st.sidebar.radio("Navigation", ["Homepage", "Data Infos", "Data Prediction", "Data Visualization", "User forms"])
+page = st.sidebar.radio("Navigation", ["Homepage", "EDA", "Data Prediction", "Data Visualization", "User forms"])
 uploaded_file = st.sidebar.file_uploader("Import CSV file", type=["csv"])
 
 # Gere les differentes erreurs de chargement du fichier 
@@ -393,14 +408,23 @@ if uploaded_file is not None:
 else:
     if "df" in st.session_state: # Si le dataset est supprimé par l'utilisateur, on supprime toutes les variables de sessions
         del st.session_state["df"]
+    if "cible" in st.session_state:
         del st.session_state["cible"]
+    if "y_pred" in st.session_state:
         del st.session_state["y_pred"]
+    if "y_test" in st.session_state:
         del st.session_state["y_test"]
+    if "df_preprocessed" in st.session_state:
         del st.session_state["df_preprocessed"]
+    if "preprocessed" in st.session_state:
         del st.session_state["preprocessed"]
+    if "trained_model" in st.session_state:
         del st.session_state["trained_model"]
+    if "feature_columns" in st.session_state:
         del st.session_state["feature_columns"]
+    if "encoders" in st.session_state:
         del st.session_state["encoders"]
+    if "defined_classes" in st.session_state:
         del st.session_state["defined_classes"]
 
 # Initialisation des variables globales et inter-pages
@@ -463,9 +487,50 @@ if df is not None:
 
 if page == "Homepage":
     st.title("Homepage")
+    st.balloons()
+    st.markdown("""
+    <div style="background-color:#f0f0f5; padding: 10px; border-radius: 10px;">
+        <h3>Welcome to our <i>Exploratory Data Analysis App</i></h3>
+        <p>In this section, we will explain how each page of our application works.</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-elif page == "Data Infos":
-    st.title("Data Infos")
+    st.header("EDA Page")
+    with st.expander("See more"):
+        st.write("""An Exploratory Data Analysis (EDA) page provides an overview of a dataset, 
+            helping analysts uncover patterns, identify outliers, and spot missing values. 
+            It presents key statistics and visualizations, such as histograms and scatter plots, 
+            to highlight the distribution and relationships between variables. 
+            This initial analysis helps in detecting data quality issues, guiding data cleaning and feature engineering. 
+            The EDA page is essential for informed decision-making before proceeding with advanced modeling or analysis.""")
+    
+    st.header("Data Prediction Page")
+    with st.expander("See more"):
+        st.write("""The Data Prediction page allows users to train a regression 
+        or classification model based on a selected target column. Users can choose the column they want to predict,
+         and the page will automatically adjust the model type accordingly. It provides options to preprocess the data,
+          select features, and evaluate the model's performance using metrics like accuracy or RMSE. 
+          This interactive page simplifies the model training process, making it accessible for users to experiment with different algorithms.
+           It enables quick insights into model performance and potential improvements.""")
+        
+    st.header("Data Visualization Page")
+    with st.expander("See more"):
+        st.write("""The Data Visualization page displays key visualizations to assess the performance of a machine learning model.
+         It includes graphs like confusion matrices, ROC curves, and residual plots, depending on whether the model is for classification
+          or regression. These visual tools help users understand how well the model is performing and identify areas for improvement. 
+          The page allows for easy comparison between different models or hyperparameters. It enhances the analysis by providing
+           clear insights into model accuracy, error distribution, and other performance metrics.""")
+        
+    st.header("User Forms Page")
+    with st.expander("See more"):
+        st.write("""The User Forms page allows users to input their own data and get predictions from the trained model.
+         Based on the target column selected earlier, the page adjusts to predict either a continuous value (regression)
+          or a class label (classification). Users can enter values for the chosen features, and the model will output a prediction in real time.
+           This page offers an interactive way for users to test how the model performs with new, unseen data. 
+           It provides instant feedback, helping users understand how the model generalizes to different inputs.""")        
+
+elif page == "EDA":
+    st.title("Exploratory Data Analysis")
     if df is not None:
         df = remove_unit(df)
 
@@ -490,6 +555,15 @@ elif page == "Data Infos":
         colonne = st.selectbox("Column to plot", df.columns)
         st.header("Distribution of the variable :")
         plot_column(df, colonne)
+
+        g_col2, d_col2 = st.columns(2)
+        colonne1 = g_col2.selectbox("First column to compare", df.columns)
+        colonne2 = g_col2.selectbox("Second column to compare", df.columns)
+        fig, ax = plt.subplots(figsize=(6, 4))
+
+        sns.scatterplot(data=df, x=colonne1, y=colonne2, palette="coolwarm", ax=ax)
+        ax.set_title(f"Relation between {colonne1} and {colonne2}")
+        d_col2.pyplot(fig)
 
     else:
         st.warning("No file selected. Please upload a CSV.")
@@ -562,6 +636,9 @@ elif page == "Data Prediction":
 
                     st.subheader("Precision score of the model")
                     st.metric("Precision : ", f"{accuracy_score(y_test, y_pred): .2f}")
+
+                    st.subheader("F1 score of the model")
+                    st.metric("F1 score : ", f"{f1_score(y_test, y_pred, average='weighted'): .2f}")
 
                 elif problem_type == "Regression":
                     st.session_state["y_test"], st.session_state["y_pred"] = regression(df_preprocessed, cible)
@@ -655,7 +732,6 @@ elif page == "User forms":
                             else:
                                 user_data[col] = -1  # Valeur inconnue (cas où une nouvelle catégorie apparaît)
 
-                        st.write(user_data.head(1))
                         prediction = trained_model.predict(user_data)
 
                         if problem_type == "Classification":
