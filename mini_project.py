@@ -8,7 +8,7 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.feature_selection import SelectKBest, f_classif, f_regression
 from sklearn.model_selection import cross_val_score, train_test_split
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.metrics import roc_auc_score, classification_report, mean_squared_error, r2_score, accuracy_score, silhouette_score
+from sklearn.metrics import roc_auc_score, classification_report, mean_squared_error, r2_score, accuracy_score, silhouette_score, confusion_matrix 
 from sklearn.linear_model import LinearRegression
 from sklearn.cluster import KMeans
 from scipy.spatial.distance import cdist
@@ -189,7 +189,7 @@ def important_features(df, cible):
             selector = SelectKBest(score_func=f_regression, k=k)
             X_selected = selector.fit_transform(X, y)
             
-            model = LinearRegression()
+            model = LinearRegression() # TODO tester avec un XGBoost
             score = cross_val_score(model, X_selected, y, cv=5, scoring='r2').mean()
         
         if score > best_score:
@@ -276,11 +276,6 @@ def classification(df, cible):
     return(y_test, y_pred)
 
 
-def classification_image(df):
-    """Donne une probabilite de classe pour une certaine image en input"""
-    # TODO
-
-
 # DATA VISUALIZATION 
 
 def plot_predictions(y_test, y_pred):
@@ -365,6 +360,17 @@ def plot_correlation(df, colonne): # FIXME ne prend pas la bonne colonne
         i+=1
 
 
+def confusion_mat(y_test, y_pred):
+    cm = confusion_matrix(y_test, y_pred)
+
+    fig, ax = plt.subplots(figsize=(6, 4))
+    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", ax=ax)
+    ax.set_xlabel("Prédictions")
+    ax.set_ylabel("Réel")
+    ax.set_title("Matrice de confusion")
+
+    st.pyplot(fig)
+
 # AFFICHAGE STREAMLIT
 
 page = st.sidebar.radio("Navigation", ["Homepage", "Data Infos", "Data Prediction", "Data Visualization", "User forms"])
@@ -435,7 +441,7 @@ else:
 
 if df is not None:
     df_originel = df.copy()
-
+    df = df.sample(frac=1, random_state=42).reset_index(drop=True)
 
 # Affichage de chaque page
 
@@ -545,12 +551,17 @@ elif page == "Data Visualization":
     
     if df is not None :
         if df_preprocessed is not None:
+            problem_type = determine_problem_type(df, cible)
+
             if y_test is not None and y_pred is not None:
                 plot_predictions(y_test, y_pred)
 
                 st.header("Correlation plot :")
                 heat_map(df_preprocessed)
                 plot_correlation(df_preprocessed, cible)
+
+                if problem_type == "Classification":
+                    confusion_mat(y_test, y_pred)
             else:
                 st.warning("Please press the 'Predict the target column' button on 'Data Prediction' page")
         else:
