@@ -78,15 +78,18 @@ def encoding_dataset(df):
     """Transforme les colonnes categoriques en colonnes numeriques"""
 
     df_encoded = df.copy()
-
     numerical_cols = [col for col in df_encoded.select_dtypes(include=['int64', 'float64']).columns 
-                      if df_encoded[col].nunique() > 10]
+                      if df_encoded[col].nunique() > 10 or df_encoded[col].nunique() == 1]
     scaler = StandardScaler()
     df_encoded[numerical_cols] = scaler.fit_transform(df_encoded[numerical_cols])
 
     for col in df_encoded.select_dtypes(include=['object', 'category']).columns:
         le = LabelEncoder() # On cree un LabelEncoder pour chaque colonne pour eviter de creer une dependance entre les encoder
         df_encoded[col] = le.fit_transform(df_encoded[col])
+        st.session_state["encoders"] = {}
+        if "encoders" in st.session_state:
+            encoders = st.session_state["encoders"]
+        encoders[col] = le
 
     return df_encoded
 
@@ -244,6 +247,12 @@ def regression(df, cible):
     )
 
     model.fit(X_train, y_train)
+
+    st.session_state["trained_model"] = model
+    st.session_state["feature_columns"] = X.columns
+    if "trained_model" in st.session_state and "feature_columns" in st.session_state:
+        trained_model = st.session_state["trained_model"]
+        feature_columns = st.session_state["feature_columns"] 
 
     y_pred = model.predict(X_test)
     return(y_test, y_pred)
@@ -409,6 +418,21 @@ if "y_pred" in st.session_state:
 else:
     y_pred = None
 
+if "trained_model" in st.session_state:
+    trained_model = st.session_state["trained_model"]
+else:
+    trained_model = None
+
+if "feature_columns" in st.session_state:
+    feature_columns = st.session_state["feature_columns"]
+else:
+    feature_columns = None
+
+if "encoders" in st.session_state:
+    encoders = st.session_state["encoders"]
+else:
+    encoders = None
+
 if df is not None:
     df_originel = df.copy()
 
@@ -465,7 +489,7 @@ elif page == "Data Prediction":
         if 'preprocessed' in st.session_state:
             preprocessed = st.session_state["preprocessed"]
 
-        if st.button("Traitement du Dataset"):
+        if st.button("Preprocess the dataset"):
             if df is not None and cible is not None and method is not None:
                 try:
                     st.session_state["df_preprocessed"] = traitement_df(df, cible, method)
@@ -548,6 +572,7 @@ elif page == "User forms":
             text_cols = [col for col in df_originel.columns if col not in numerical_cols and df_originel[col].nunique()>10]
             categorical_cols = [col for col in df_originel.columns if col not in numerical_cols and col not in text_cols and col not in selected_cols]
 
+            user_input = {}
             with st.form("Patient form"):
                 for col in df_originel.columns:
                     if col in numerical_cols:
@@ -562,10 +587,27 @@ elif page == "User forms":
                     elif col in categorical_cols:
                         colonne = st.checkbox(f"{col}")
 
-                submitted = st.form_submit_button("Submit")
+                    user_input[col] = colonne
+
+                submitted = st.form_submit_button("Predict")
 
                 if submitted:
-                    st.success("Patient profile submitted successfully!")
+                    if "trained_model" in st.session_state:
+                        user_data = pd.DataFrame([user_input], columns=feature_columns)
+                        user_data.loc[:, user_data.select_dtypes(include=bool).columns] = user_data.select_dtypes(include=bool).astype(int)
+
+                        for col in user_data.select_dtypes(include="object").columns:
+                            if col in encoders: 
+                                user_data[col] = encoders[col].transform(user_data[col])
+                            else:
+                                user_data[col] = -1  # Valeur inconnue (cas où une nouvelle catégorie apparaît)
+
+                        st.write(user_data.head(1))
+                        prediction = trained_model.predict(user_data)
+                        st.write(f"Model Prediction : {prediction[0]:.2f}")
+                    else:
+                        st.warning("Le modèle n'a pas encore été entraîné. Chargez un dataset pour l'entraîner.")
+
         else:
             st.warning("Please select the column you want to predict on the 'Data Prediction' page")
     else:
