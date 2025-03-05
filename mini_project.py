@@ -271,6 +271,12 @@ def classification(df, cible):
     model = RandomForestClassifier(random_state=42, class_weight='balanced') # TODO pouvoir choisir la profondeur du modele
     model.fit(X_train, y_train)
 
+    st.session_state["trained_model"] = model
+    st.session_state["feature_columns"] = X.columns
+    if "trained_model" in st.session_state and "feature_columns" in st.session_state:
+        trained_model = st.session_state["trained_model"]
+        feature_columns = st.session_state["feature_columns"] 
+
     y_pred = model.predict(X_test)
 
     return(y_test, y_pred)
@@ -283,9 +289,9 @@ def plot_predictions(y_test, y_pred):
 
     fig, ax = plt.subplots()
     ax.scatter(y_test, y_pred, alpha=0.5)
-    ax.set_xlabel("Valeurs réelles")
-    ax.set_ylabel("Prédictions")
-    ax.set_title("Comparaison entre les vraies valeurs et les prédictions")
+    ax.set_xlabel("Real values")
+    ax.set_ylabel("Predictions")
+    ax.set_title("Comparison between true values ​​and predictions")
     
     st.pyplot(fig)
 
@@ -391,6 +397,10 @@ else:
         del st.session_state["y_test"]
         del st.session_state["df_preprocessed"]
         del st.session_state["preprocessed"]
+        del st.session_state["trained_model"]
+        del st.session_state["feature_columns"]
+        del st.session_state["encoders"]
+        del st.session_state["defined_classes"]
 
 # Initialisation des variables globales et inter-pages
 
@@ -438,6 +448,11 @@ if "encoders" in st.session_state:
     encoders = st.session_state["encoders"]
 else:
     encoders = None
+
+if "defined_classes" in st.session_state:
+    defined_classes = st.session_state["defined_classes"]
+else:
+    defined_classes = None
 
 if df is not None:
     df_originel = df.copy()
@@ -487,6 +502,20 @@ elif page == "Data Prediction":
         st.session_state["cible"] = st.selectbox("Column to predict", df.columns)
         if "cible" in st.session_state:
             cible = st.session_state["cible"]
+        
+        if df[cible].dtype in ["int64", "float64"] and df[cible].nunique()<11:
+            st.warning("The target column you choose is already encoded. Please describe the classes.")
+
+            st.session_state["defined_classes"] = {}
+            if 'defined_classes' in st.session_state:
+                defined_classes = st.session_state["defined_classes"]
+
+            with st.form("Information Request"):
+                for cls in df[cible].unique():
+                    expl_classe = st.text_input(f"Definition for class '{cls}':") 
+                    defined_classes[cls] = expl_classe
+
+                submitted = st.form_submit_button("Submit")
 
         method = st.selectbox("Methods", ["Frequency/Mean", "Clustering"])
         problem_type = determine_problem_type(df, cible)
@@ -574,51 +603,75 @@ elif page == "User forms":
     
     if df is not None:
         if cible is not None: 
-            st.write(df_originel.head())
-            df_originel = remove_unit(df_originel)
-            df_originel = df_originel.drop(columns=[cible])
+            if len(defined_classes) != 0:
+                st.write(df_originel.head())
+                df_originel = remove_unit(df_originel)
+                problem_type = determine_problem_type(df_originel, cible)
+                col_cible = df_originel[cible]
+                df_originel = df_originel.drop(columns=[cible])
 
-            numerical_cols = df_originel.select_dtypes(include=['int64', 'float64']).columns
-            selected_cols = [col for col in df_originel.columns if col not in numerical_cols and 2<df_originel[col].nunique()<11]
-            text_cols = [col for col in df_originel.columns if col not in numerical_cols and df_originel[col].nunique()>10]
-            categorical_cols = [col for col in df_originel.columns if col not in numerical_cols and col not in text_cols and col not in selected_cols]
+                numerical_cols = [col for col in df_originel.select_dtypes(include=['int64', 'float64']).columns if df_originel[col].nunique() >= 3]
+                categorical_cols = [col for col in df_originel.select_dtypes(include=['int64', 'float64']).columns if df_originel[col].nunique() == 2]
+                selected_cols = [col for col in df_originel.columns if col not in numerical_cols and col not in categorical_cols and df_originel[col].nunique()<11]
+                text_cols = [col for col in df_originel.columns if col not in numerical_cols and df_originel[col].nunique()>10]
 
-            user_input = {}
-            with st.form("Patient form"):
-                for col in df_originel.columns:
-                    if col in numerical_cols:
-                        colonne = st.number_input(f"{col}")
+                user_input = {}
+                with st.form("Patient form"):
+                    for col in df_originel.columns:
+                        if col == "id" or col == "ID" or col == "Id":
+                            colonne = st.number_input(f"{col}", min_value=df_originel[col].max())
 
-                    elif col in text_cols:
-                        colonne = st.text_input(f"{col}")
+                        elif col in numerical_cols:
+                            colonne = st.number_input(f"{col}")
 
-                    elif col in selected_cols:
-                        colonne = st.selectbox(f"{col}", df[col].unique())
-                        
-                    elif col in categorical_cols:
-                        colonne = st.checkbox(f"{col}")
+                        elif col in text_cols:
+                            colonne = st.text_input(f"{col}")
 
-                    user_input[col] = colonne
+                        elif col in selected_cols:
+                            colonne = st.selectbox(f"{col}", df[col].unique())
+                            
+                        elif col in categorical_cols:
+                            colonne = st.checkbox(f"{col}")
 
-                submitted = st.form_submit_button("Predict")
+                        user_input[col] = colonne
 
-                if submitted:
-                    if "trained_model" in st.session_state:
-                        user_data = pd.DataFrame([user_input], columns=feature_columns)
-                        user_data.loc[:, user_data.select_dtypes(include=bool).columns] = user_data.select_dtypes(include=bool).astype(int)
+                    submitted = st.form_submit_button("Predict")
 
-                        for col in user_data.select_dtypes(include="object").columns:
-                            if col in encoders: 
-                                user_data[col] = encoders[col].transform(user_data[col])
+                    if submitted:
+                        if "trained_model" in st.session_state:
+                            filtered_input = {key: user_input[key] for key in feature_columns}
+                            user_data = pd.DataFrame([filtered_input], columns=feature_columns)
+                            user_data.loc[:, user_data.select_dtypes(include=bool).columns] = user_data.select_dtypes(include=bool).astype(int)
+
+                            for col in user_data.select_dtypes(include=["object", "category"]).columns:
+                                if col in encoders: 
+                                    user_data[col] = encoders[col].transform(user_data[col])
+                                else:
+                                    user_data[col] = -1  # Valeur inconnue (cas où une nouvelle catégorie apparaît)
+
+                            st.write(user_data.head(1))
+                            prediction = trained_model.predict(user_data)
+
+                            if problem_type == "Classification":
+                                if col_cible.dtype in ["int64", "float64"]:
+                                    st.write(f"The predicted class for {cible} is : {defined_classes[prediction[0]]}")
+
+                                else:
+                                    le_cible = encoders[cible]
+                                    prediction_label = le_cible.inverse_transform([prediction[0]])[0]
+                                    st.write(f"The predicted class for {cible} is : {prediction_label}")
+
                             else:
-                                user_data[col] = -1  # Valeur inconnue (cas où une nouvelle catégorie apparaît)
+                                cible_mean = col_cible.mean()
+                                cible_std = col_cible.std(ddof=0)
 
-                        st.write(user_data.head(1))
-                        prediction = trained_model.predict(user_data)
-                        st.write(f"Model Prediction : {prediction[0]:.2f}")
-                    else:
-                        st.warning("Le modèle n'a pas encore été entraîné. Chargez un dataset pour l'entraîner.")
+                                prediction_destandard = prediction[0] * cible_std + cible_mean
 
+                                st.write(f"Model Prediction : {prediction_destandard:.2f}")
+                        else:
+                            st.warning("Le modèle n'a pas encore été entraîné. Chargez un dataset pour l'entraîner.")
+            else:
+                st.warning("You choose a column already encoded. Please specify the definition of each class in the 'Data Prediction' page.")
         else:
             st.warning("Please select the column you want to predict on the 'Data Prediction' page")
     else:
