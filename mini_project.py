@@ -358,7 +358,7 @@ def plot_correlation(df, colonne): # FIXME ne prend pas la bonne colonne
 
 # AFFICHAGE STREAMLIT
 
-page = st.sidebar.radio("Navigation", ["Homepage", "Data Infos", "Data Prediction", "Data Visualization"])
+page = st.sidebar.radio("Navigation", ["Homepage", "Data Infos", "Data Prediction", "Data Visualization", "User forms"])
 uploaded_file = st.sidebar.file_uploader("Import CSV file", type=["csv"])
 
 # Gere les differentes erreurs de chargement du fichier 
@@ -368,12 +368,52 @@ if uploaded_file is not None:
         st.sidebar.success("The file has been uploaded")
     except Exception as e:
         st.sidebar.error(f"❌ Loading error : {e}")
+else:
+    if "df" in st.session_state: # Si le dataset est supprimé par l'utilisateur, on supprime toutes les variables de sessions
+        del st.session_state["df"]
+        del st.session_state["cible"]
+        del st.session_state["y_pred"]
+        del st.session_state["y_test"]
+        del st.session_state["df_preprocessed"]
+        del st.session_state["preprocessed"]
+
+# Initialisation des variables globales et inter-pages
 
 if "df" in st.session_state:
     df = st.session_state["df"]
 else:
     df = None
 
+if "cible" in st.session_state:
+    cible = st.session_state["cible"]
+else:
+    cible = None
+
+if 'preprocessed' in st.session_state:
+    preprocessed = st.session_state["preprocessed"]
+else:
+    preprocessed = None
+
+if 'df_preprocessed' in st.session_state:
+    df_preprocessed = st.session_state["df_preprocessed"]
+else:
+    df_preprocessed = None
+
+if "y_test" in st.session_state:
+    y_test = st.session_state['y_test']
+else:
+    y_test = None
+
+if "y_pred" in st.session_state:
+    y_pred = st.session_state["y_pred"]
+else:
+    y_pred = None
+
+if df is not None:
+    df_originel = df.copy()
+
+
+# Affichage de chaque page
 
 if page == "Homepage":
     st.title("Homepage")
@@ -413,55 +453,66 @@ elif page == "Data Prediction":
 
     if df is not None:
         df = remove_unit(df)
-        if "cible" not in st.session_state:
-            st.session_state.cible = ""
-        st.session_state.cible = st.selectbox("Column to predict", df.columns)
+
+        st.session_state["cible"] = st.selectbox("Column to predict", df.columns)
+        if "cible" in st.session_state:
+            cible = st.session_state["cible"]
+
         method = st.selectbox("Methods", ["Frequency/Mean", "Clustering"])
-        problem_type = determine_problem_type(df, st.session_state.cible)
+        problem_type = determine_problem_type(df, cible)
 
-        if 'df_preprocessed' and 'preprocessed' not in st.session_state:
-            # Garde en mémoire le traitement du dataset même si on clique plus sur le bouton 
-            st.session_state.df_preprocessed = pd.DataFrame()
-            st.session_state.preprocessed = False
-        if "y_test" not in st.session_state:
-            st.session_state.y_test = np.array([])  # Tableau vide
-
-        if "y_pred" not in st.session_state:
-            st.session_state.y_pred = np.array([])
+        st.session_state["preprocessed"] = False
+        if 'preprocessed' in st.session_state:
+            preprocessed = st.session_state["preprocessed"]
 
         if st.button("Traitement du Dataset"):
-            if df is not None and st.session_state.cible is not None and method is not None:
+            if df is not None and cible is not None and method is not None:
                 try:
-                    st.session_state.df_preprocessed = traitement_df(df, st.session_state.cible, method)
+                    st.session_state["df_preprocessed"] = traitement_df(df, cible, method)
+                    if 'df_preprocessed' in st.session_state:
+                        df_preprocessed = st.session_state["df_preprocessed"]
+
                     st.success("The dataset has been successfully processed.")
-                    st.write(f"**Total of missing values :** {st.session_state.df_preprocessed.isna().sum().sum()}")
-                    st.session_state.preprocessed = True
+                    st.write(f"**Total of missing values :** {df_preprocessed.isna().sum().sum()}")
+                    preprocessed = True
                 except Exception as e:
                     st.warning(f"An error occurred: {str(e)}")
             else:
                 st.warning("Please ensure that the dataset, target column, and method are selected.")
-        elif not st.session_state.preprocessed:
+        elif not preprocessed:
             st.warning("Please preprocess your file by clicking on the button.") 
 
         if st.button("Predict the target column"):
-            if st.session_state.df_preprocessed.empty:
+            if df_preprocessed.empty:
                 st.write('The dataset is empty')
             else:
                 st.header("Prediction Report:")
 
                 if problem_type == "Classification": 
-                    st.session_state.y_test, st.session_state.y_pred = classification(st.session_state.df_preprocessed, st.session_state.cible)
+                    st.session_state["y_test"], st.session_state["y_pred"] = classification(df_preprocessed, cible)
+
+                    if "y_test" in st.session_state:
+                        y_test = st.session_state['y_test']
+
+                    if "y_pred" in st.session_state:
+                        y_pred = st.session_state["y_pred"]
 
                     st.subheader("Precision score of the model")
-                    st.metric("Precision : ", f"{accuracy_score(st.session_state.y_test, st.session_state.y_pred): .2f}")
+                    st.metric("Precision : ", f"{accuracy_score(y_test, y_pred): .2f}")
 
                 elif problem_type == "Regression":
-                    st.session_state.y_test, st.session_state.y_pred = regression(st.session_state.df_preprocessed, st.session_state.cible)
+                    st.session_state["y_test"], st.session_state["y_pred"] = regression(df_preprocessed, cible)
+
+                    if "y_test" in st.session_state:
+                        y_test = st.session_state['y_test']
+
+                    if "y_pred" in st.session_state:
+                        y_pred = st.session_state["y_pred"]
 
                     st.subheader("Mean squared error of the model")
-                    st.metric("MSE : ", f"{mean_squared_error(st.session_state.y_test, st.session_state.y_pred): .4f}")
+                    st.metric("MSE : ", f"{mean_squared_error(y_test, y_pred): .4f}")
                     st.subheader("R² score of the model")
-                    st.metric("R² score : ", f"{r2_score(st.session_state.y_test, st.session_state.y_pred): .4f}")
+                    st.metric("R² score : ", f"{r2_score(y_test, y_pred): .4f}")
     else:
         st.warning("No file selected. Please upload a CSV.")
 
@@ -469,11 +520,53 @@ elif page == "Data Visualization":
     st.title("Data Visualization")
     
     if df is not None :
-        plot_predictions(st.session_state.y_test, st.session_state.y_pred)
+        if df_preprocessed is not None:
+            if y_test is not None and y_pred is not None:
+                plot_predictions(y_test, y_pred)
 
-        st.header("Correlation plot :")
-        heat_map(st.session_state.df_preprocessed)
-        plot_correlation(st.session_state.df_preprocessed, st.session_state.cible)
+                st.header("Correlation plot :")
+                heat_map(df_preprocessed)
+                plot_correlation(df_preprocessed, cible)
+            else:
+                st.warning("Please press the 'Predict the target column' button on 'Data Prediction' page")
+        else:
+            st.warning("Please press the 'Preprocess the dataset' button on the 'Data Preprocessing' page")
+    else:
+        st.warning("No file selected. Please upload a CSV.")
 
+elif page == "User forms":
+    st.title("User forms")
+    
+    if df is not None:
+        if cible is not None: 
+            st.write(df_originel.head())
+            df_originel = remove_unit(df_originel)
+            df_originel = df_originel.drop(columns=[cible])
+
+            numerical_cols = df_originel.select_dtypes(include=['int64', 'float64']).columns
+            selected_cols = [col for col in df_originel.columns if col not in numerical_cols and 2<df_originel[col].nunique()<11]
+            text_cols = [col for col in df_originel.columns if col not in numerical_cols and df_originel[col].nunique()>10]
+            categorical_cols = [col for col in df_originel.columns if col not in numerical_cols and col not in text_cols and col not in selected_cols]
+
+            with st.form("Patient form"):
+                for col in df_originel.columns:
+                    if col in numerical_cols:
+                        colonne = st.number_input(f"{col}")
+
+                    elif col in text_cols:
+                        colonne = st.text_input(f"{col}")
+
+                    elif col in selected_cols:
+                        colonne = st.selectbox(f"{col}", df[col].unique())
+                        
+                    elif col in categorical_cols:
+                        colonne = st.checkbox(f"{col}")
+
+                submitted = st.form_submit_button("Submit")
+
+                if submitted:
+                    st.success("Patient profile submitted successfully!")
+        else:
+            st.warning("Please select the column you want to predict on the 'Data Prediction' page")
     else:
         st.warning("No file selected. Please upload a CSV.")
